@@ -1,66 +1,121 @@
+import json
 import pytest
-from evaluator.detection_metrics import compute_iou, compute_precision_recall, compute_f1, compute_map
+import numpy as np
+from evaluator.detection_metrics import compute_precision_recall, compute_f1, compute_map
 
+@pytest.fixture
+def gt_and_pred():
+    with open("data/gt.json") as f:
+        gt_data = json.load(f)
+    with open("data/predictions.json") as f:
+        pred_data = json.load(f)
+    return gt_data, pred_data
 
-def test_iou_perfect_overlap():
-    """两个完全一样的框，IoU应该是1.0"""
-    box = [100, 100, 300, 300]
-    assert compute_iou(box, box) == 1.0
+def test_precision_vs_gt(gt_and_pred, record_property):
+    """YOLOv8 Precision必须高于0.75"""
+    gt_data, pred_data = gt_and_pred
+    gt_by_frame = {}
+    for ann in gt_data["annotations"]:
+        fid = ann["image_id"]
+        if fid not in gt_by_frame:
+            gt_by_frame[fid] = []
+        x, y, w, h = ann["bbox"]
+        gt_by_frame[fid].append([x, y, x+w, y+h])
 
+    precisions = []
+    for frame_id, pred in pred_data.items():
+        fid = int(frame_id)
+        preds = [[d["bbox"][0], d["bbox"][1],
+                  d["bbox"][0]+d["bbox"][2],
+                  d["bbox"][1]+d["bbox"][3],
+                  d["confidence"]] for d in pred["detections"]]
+        gts = gt_by_frame.get(fid, [])
+        p, _ = compute_precision_recall(preds, gts)
+        precisions.append(p)
 
-def test_iou_no_overlap():
-    """两个完全不重叠的框，IoU应该是0.0"""
-    box1 = [0, 0, 100, 100]
-    box2 = [200, 200, 300, 300]
-    assert compute_iou(box1, box2) == 0.0
+    avg_precision = np.mean(precisions)
+    record_property("Precision", f"{avg_precision:.4f}")
+    record_property("Threshold", "≥ 0.75")
+    assert avg_precision >= 0.75, f"Precision {avg_precision:.4f} too low"
 
+def test_recall_vs_gt(gt_and_pred, record_property):
+    """YOLOv8 Recall必须高于0.90"""
+    gt_data, pred_data = gt_and_pred
+    gt_by_frame = {}
+    for ann in gt_data["annotations"]:
+        fid = ann["image_id"]
+        if fid not in gt_by_frame:
+            gt_by_frame[fid] = []
+        x, y, w, h = ann["bbox"]
+        gt_by_frame[fid].append([x, y, x+w, y+h])
 
-def test_iou_partial_overlap():
-    """部分重叠，IoU应该在0到1之间"""
-    box1 = [0, 0, 200, 200]
-    box2 = [100, 100, 300, 300]
-    iou = compute_iou(box1, box2)
-    assert 0 < iou < 1
+    recalls = []
+    for frame_id, pred in pred_data.items():
+        fid = int(frame_id)
+        preds = [[d["bbox"][0], d["bbox"][1],
+                  d["bbox"][0]+d["bbox"][2],
+                  d["bbox"][1]+d["bbox"][3],
+                  d["confidence"]] for d in pred["detections"]]
+        gts = gt_by_frame.get(fid, [])
+        _, r = compute_precision_recall(preds, gts)
+        recalls.append(r)
 
+    avg_recall = np.mean(recalls)
+    record_property("Recall", f"{avg_recall:.4f}")
+    record_property("Threshold", "≥ 0.90")
+    assert avg_recall >= 0.90, f"Recall {avg_recall:.4f} too low"
 
-def test_precision_recall_perfect():
-    """完美检测，Precision和Recall都应该是1.0"""
-    predictions = [
-        [100, 100, 300, 300, 0.9],
-        [400, 200, 600, 450, 0.8],
-    ]
-    ground_truths = [
-        [100, 100, 300, 300],
-        [400, 200, 600, 450],
-    ]
-    p, r = compute_precision_recall(predictions, ground_truths)
-    assert p == 1.0
-    assert r == 1.0
+def test_f1_vs_gt(gt_and_pred, record_property):
+    """F1 Score必须高于0.80"""
+    gt_data, pred_data = gt_and_pred
+    gt_by_frame = {}
+    for ann in gt_data["annotations"]:
+        fid = ann["image_id"]
+        if fid not in gt_by_frame:
+            gt_by_frame[fid] = []
+        x, y, w, h = ann["bbox"]
+        gt_by_frame[fid].append([x, y, x+w, y+h])
 
+    precisions, recalls = [], []
+    for frame_id, pred in pred_data.items():
+        fid = int(frame_id)
+        preds = [[d["bbox"][0], d["bbox"][1],
+                  d["bbox"][0]+d["bbox"][2],
+                  d["bbox"][1]+d["bbox"][3],
+                  d["confidence"]] for d in pred["detections"]]
+        gts = gt_by_frame.get(fid, [])
+        p, r = compute_precision_recall(preds, gts)
+        precisions.append(p)
+        recalls.append(r)
 
-def test_precision_recall_with_false_positive():
-    """有误检的情况，Precision应该小于1.0"""
-    predictions = [
-        [100, 100, 300, 300, 0.9],  # 正确
-        [700, 700, 900, 900, 0.8],  # 误检
-    ]
-    ground_truths = [
-        [100, 100, 300, 300],
-    ]
-    p, r = compute_precision_recall(predictions, ground_truths)
-    assert p < 1.0
-    assert r == 1.0
+    f1 = compute_f1(np.mean(precisions), np.mean(recalls))
+    record_property("F1 Score", f"{f1:.4f}")
+    record_property("Threshold", "≥ 0.80")
+    assert f1 >= 0.80, f"F1 {f1:.4f} too low"
 
+def test_map_vs_gt(gt_and_pred, record_property):
+    """mAP必须高于0.7"""
+    gt_data, pred_data = gt_and_pred
+    gt_by_frame = {}
+    for ann in gt_data["annotations"]:
+        fid = ann["image_id"]
+        if fid not in gt_by_frame:
+            gt_by_frame[fid] = []
+        x, y, w, h = ann["bbox"]
+        gt_by_frame[fid].append([x, y, x+w, y+h])
 
-def test_map_threshold():
-    """mAP应该大于0.6才算pass"""
-    all_predictions = [
-        [[100, 100, 300, 300, 0.9]],
-        [[400, 200, 600, 450, 0.8]],
-    ]
-    all_ground_truths = [
-        [[100, 100, 300, 300]],
-        [[400, 200, 600, 450]],
-    ]
+    all_predictions, all_ground_truths = [], []
+    for frame_id, pred in pred_data.items():
+        fid = int(frame_id)
+        preds = [[d["bbox"][0], d["bbox"][1],
+                  d["bbox"][0]+d["bbox"][2],
+                  d["bbox"][1]+d["bbox"][3],
+                  d["confidence"]] for d in pred["detections"]]
+        gts = gt_by_frame.get(fid, [])
+        all_predictions.append(preds)
+        all_ground_truths.append(gts)
+
     map_score = compute_map(all_predictions, all_ground_truths)
-    assert map_score >= 0.6, f"mAP {map_score} is below threshold 0.6"
+    record_property("mAP", f"{map_score:.4f}")
+    record_property("Threshold", "≥ 0.70")
+    assert map_score >= 0.7, f"mAP {map_score:.4f} too low"

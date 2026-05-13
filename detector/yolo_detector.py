@@ -2,9 +2,9 @@ from ultralytics import YOLO
 import time
 class LivestockDetector:
     """
-    封装YOLOv8，专门用于牲畜检测
+    封装YOLOv8,专门用于牲畜检测
     """
-    def __init__(self, model_path="yolov8n.pt", conf_threshold=0.25):
+    def __init__(self, model_path="yolov8n.pt", conf_threshold=0.5):
         self.model = YOLO(model_path)
         self.conf_threshold = conf_threshold
         # COCO数据集里的牲畜类别
